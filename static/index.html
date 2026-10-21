@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JEFFRY // NEURAL BIOMETRICS CORE</title>
+    <meta name="description" content="Cyberpunk Face Recognition AI Terminal powered by RetinaFace & DeepFace Facenet512">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="tech-hud-body">
+    <!-- Cyber Background Elements -->
+    <div class="cyber-grid-bg"></div>
+    <div class="cyber-vignette"></div>
+    <div class="cyber-scanline-ambient"></div>
+
+    <div class="hud-container">
+        <!-- Top Tech Bar -->
+        <header class="hud-top-bar">
+            <div class="hud-brand">
+                <div class="brand-hex-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                        <polygon points="12 2 2 7 2 17 12 22 22 17 22 7 12 2"/>
+                        <circle cx="12" cy="12" r="3.5"/>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <div class="brand-title">JEFFRY<span class="neon-highlight">.AI</span></div>
+                    <div class="brand-sub">NEURAL BIOMETRICS &bull; QUANTUM HUD v4.8</div>
+                </div>
+            </div>
+
+            <!-- Central HUD Telemetry Strip -->
+            <div class="hud-telemetry-strip">
+                <div class="telemetry-node">
+                    <span class="telemetry-label">SYS_STATE</span>
+                    <span class="telemetry-val text-green" id="sysStateVal">NOMINAL</span>
+                </div>
+                <div class="telemetry-node">
+                    <span class="telemetry-label">INFERENCE</span>
+                    <span class="telemetry-val text-cyan" id="perfTime">0 ms</span>
+                </div>
+                <div class="telemetry-node">
+                    <span class="telemetry-label">DETECTOR</span>
+                    <span class="telemetry-val text-white" id="detectorEngine">RetinaFace</span>
+                </div>
+                <div class="telemetry-node">
+                    <span class="telemetry-label">EMBEDDINGS</span>
+                    <span class="telemetry-val text-cyan" id="modelEngine">Facenet512</span>
+                </div>
+                <div class="telemetry-node">
+                    <span class="telemetry-label">CUTOFF_D</span>
+                    <span class="telemetry-val text-amber" id="thresholdVal">0.420</span>
+                </div>
+            </div>
+
+            <!-- Server Connection Link -->
+            <div class="hud-actions">
+                <div class="vault-counter-pill">
+                    <span class="counter-label">DATABASE</span>
+                    <span class="counter-num" id="statPersons">24</span>
+                    <span class="counter-unit">IDS</span>
+                </div>
+
+                <div class="cyber-status-badge" id="navStatus" onclick="configureServerUrl()" title="Klik untuk konfirmasi URL API Server">
+                    <span class="pulse-indicator offline"></span>
+                    <span class="status-name">INIT_LINK...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Mode Toggle Segmented Cyber Bar -->
+        <div class="mode-cyber-strip">
+            <div class="cyber-tabs">
+                <button class="cyber-tab active" id="btnWebcam" onclick="switchMode('webcam')">
+                    <span class="tab-glitch"></span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="4"/>
+                    </svg>
+                    <span>OPTICAL FEED [WEBCAM]</span>
+                </button>
+                <button class="cyber-tab" id="btnUpload" onclick="switchMode('upload')">
+                    <span class="tab-glitch"></span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <span>BUFFER INGEST [UPLOAD]</span>
+                </button>
+            </div>
+
+            <div class="hud-clock-ticker" id="hudClock">
+                UTC: <span id="clockDigits">00:00:00</span>
+            </div>
+        </div>
+
+        <!-- Main HUD Layout: 2 Columns (Optical Cockpit + Biometric Analysis Terminal) -->
+        <main class="hud-grid">
+            <!-- Left Optical Feed Section -->
+            <section class="cockpit-panel">
+                <div class="panel-header-bracket">
+                    <div class="bracket-title">
+                        <span class="bracket-code">[FEED_01]</span>
+                        <h2 id="panelTitle">OPTICAL SENSOR ARRAY</h2>
+                    </div>
+                    
+                    <div class="bracket-controls" id="webcamControls">
+                        <button class="cyber-btn cyber-btn-primary" id="btnStartCam" onclick="startWebcam()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            <span>ENGAGE OPTICS</span>
+                        </button>
+                        <button class="cyber-btn cyber-btn-danger hidden" id="btnStopCam" onclick="stopWebcam()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="6" y="6" width="12" height="12"/>
+                            </svg>
+                            <span>DISENGAGE</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="cockpit-viewport" id="videoContainer">
+                    <!-- Tech HUD Reticles & Overlays -->
+                    <div class="hud-reticle-nw"></div>
+                    <div class="hud-reticle-ne"></div>
+                    <div class="hud-reticle-sw"></div>
+                    <div class="hud-reticle-se"></div>
+                    <div class="hud-crosshair-center"></div>
+
+                    <!-- Webcam Feed -->
+                    <div class="webcam-layer" id="webcamWrapper">
+                        <video id="webcamVideo" autoplay playsinline muted></video>
+                        <canvas id="overlayCanvas"></canvas>
+                        <div class="laser-scanner" id="scanLine"></div>
+                        
+                        <div class="optical-offline-banner" id="videoPlaceholder">
+                            <div class="hex-radar-anim">
+                                <div class="radar-sweep"></div>
+                            </div>
+                            <h3>OPTICAL SENSORS STANDBY</h3>
+                            <p>Engage camera system to initialize facial vectorization</p>
+                            <button class="cyber-btn cyber-btn-glow" onclick="startWebcam()">INITIALIZE FEED</button>
+                        </div>
+                    </div>
+
+                    <!-- Upload Mode Layer -->
+                    <div class="upload-layer hidden" id="uploadWrapper">
+                        <div class="cyber-upload-dropzone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                            <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFileUpload(event)">
+                            <div class="dropzone-icon">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                                    <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                                    <polyline points="2 17 12 22 22 17"/>
+                                    <polyline points="2 12 12 17 22 12"/>
+                                </svg>
+                            </div>
+                            <h3>INGEST IMAGE BUFFER</h3>
+                            <p>Drop image file here or click to mount buffer (JPG, PNG, WEBP)</p>
+                            <span class="file-size-spec">&lt;MAX BUFFER SIZE: 10 MB&gt;</span>
+                        </div>
+
+                        <div class="upload-preview-layer hidden" id="uploadedPreview">
+                            <img id="uploadedImage" alt="Buffer Target">
+                            <canvas id="uploadOverlayCanvas"></canvas>
+                            <button class="cyber-eject-btn" onclick="removeUpload()" title="Eject Buffer">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                                <span>EJECT BUFFER</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- HUD Footer Bar in Cockpit -->
+                    <div class="cockpit-footer-telemetry">
+                        <div class="sound-wave-bars">
+                            <span class="bar b1"></span>
+                            <span class="bar b2"></span>
+                            <span class="bar b3"></span>
+                            <span class="bar b4"></span>
+                            <span class="bar b5"></span>
+                            <span class="bar b6"></span>
+                        </div>
+                        <div class="feed-coords">
+                            TARGET_COORDS: <span class="coord-val">[X: 000 | Y: 000 | Z: 512D]</span>
+                        </div>
+                        <div class="feed-res">
+                            STREAM: <span>1080p @ 60FPS</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Biometric Telemetry & Analysis Section -->
+            <section class="analysis-panel">
+                <div class="panel-header-bracket">
+                    <div class="bracket-title">
+                        <span class="bracket-code">[LOG_02]</span>
+                        <h2>NEURAL MATCH TELEMETRY</h2>
+                    </div>
+                    
+                    <div class="target-count-badge" id="faceCount">
+                        0 TARGETS
+                    </div>
+                </div>
+
+                <div class="processing-strip hidden" id="processingIndicator">
+                    <div class="progress-laser-track">
+                        <div class="progress-laser-bar"></div>
+                    </div>
+                    <span>ANALYZING 512D VECTORS...</span>
+                </div>
+
+                <!-- Live Results Cards -->
+                <div class="results-viewport" id="resultsList">
+                    <div class="tech-idle-state" id="emptyState">
+                        <div class="target-cross-icon">
+                            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+                                <circle cx="12" cy="12" r="9"/>
+                                <line x1="12" y1="3" x2="12" y2="7"/>
+                                <line x1="12" y1="17" x2="12" y2="21"/>
+                                <line x1="3" y1="12" x2="7" y2="12"/>
+                                <line x1="17" y1="12" x2="21" y2="12"/>
+                            </svg>
+                        </div>
+                        <h3>STANDBY FOR BIOMETRIC SCAN</h3>
+                        <p>Feed data through optical array or buffer to execute neural cosine verification.</p>
+                    </div>
+                </div>
+
+                <!-- Database Micro-Tray -->
+                <div class="database-tray">
+                    <div class="tray-header">
+                        <span class="tray-label">// REGISTERED BIOMETRIC IDENTITIES</span>
+                        <button class="cyber-btn-xs" id="btnRefreshDb" onclick="loadPersons()">SYNC</button>
+                    </div>
+
+                    <div class="tray-search">
+                        <span class="search-prefix">SYS.FIND&gt;</span>
+                        <input type="text" id="searchPersons" placeholder="Query identity registry...">
+                    </div>
+
+                    <div class="tray-list" id="personsList">
+                        <div class="cyber-loader">INITIALIZING DATABASE...</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
