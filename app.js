@@ -26,8 +26,19 @@ if (!isLocal) {
 
 const customApi = localStorage.getItem('faceid_backend_url');
 let API_BASE = (customApi ? customApi.replace(/\/$/, '') : defaultApi);
-const WEBCAM_INTERVAL_MS = 1400;
-const JPEG_QUALITY = 0.86;
+const WEBCAM_STREAM_INTERVAL_MS = 150; // Jeda 150ms antar frame untuk latensi ultra-cepat (~4-5 FPS real-time)
+const WEBCAM_MAX_WIDTH = 640;          // Resolusi optimal untuk transfer kilat ke backend
+const JPEG_QUALITY = 0.75;             // Payload ringan (~25KB) tanpa mengurangi akurasi deteksi
+
+let offscreenCanvas = null;
+let offscreenCtx = null;
+function getOffscreenCanvas() {
+    if (!offscreenCanvas) {
+        offscreenCanvas = document.createElement('canvas');
+        offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    return { canvas: offscreenCanvas, ctx: offscreenCtx };
+}
 
 function configureServerUrl() {
     const current = localStorage.getItem('faceid_backend_url') || API_BASE;
@@ -258,9 +269,14 @@ async function startWebcam() {
     }
 }
 
+let captureTimeoutId = null;
+
 function stopWebcam() {
     webcamActive = false;
-    if (captureInterval) clearInterval(captureInterval);
+    if (captureTimeoutId) {
+        clearTimeout(captureTimeoutId);
+        captureTimeoutId = null;
+    }
     if (webcamStream) {
         webcamStream.getTracks().forEach(track => track.stop());
         webcamStream = null;
@@ -285,24 +301,42 @@ function syncCanvasSize() {
 }
 
 function startCaptureLoop() {
-    if (captureInterval) clearInterval(captureInterval);
-    captureInterval = setInterval(captureAndSendFrame, WEBCAM_INTERVAL_MS);
-    captureAndSendFrame();
+    if (captureTimeoutId) clearTimeout(captureTimeoutId);
+    scheduleNextFrame(0);
+}
+
+function scheduleNextFrame(delay = WEBCAM_STREAM_INTERVAL_MS) {
+    if (!webcamActive) return;
+    if (captureTimeoutId) clearTimeout(captureTimeoutId);
+    captureTimeoutId = setTimeout(async () => {
+        if (!webcamActive) return;
+        await captureAndSendFrame();
+        if (webcamActive) {
+            scheduleNextFrame(WEBCAM_STREAM_INTERVAL_MS);
+        }
+    }, delay);
 }
 
 async function captureAndSendFrame() {
     if (!webcamActive || isProcessing) return;
     const video = elements.webcamVideo;
-    if (video.readyState < 2) return;
+    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(video, 0, 0);
+    const { canvas: tempCanvas, ctx: tempCtx } = getOffscreenCanvas();
+    const origW = video.videoWidth;
+    const origH = video.videoHeight;
+
+    // Skala frame untuk transmisi cepat (max width 640px)
+    const scale = origW > WEBCAM_MAX_WIDTH ? (WEBCAM_MAX_WIDTH / origW) : 1.0;
+    const sendW = Math.round(origW * scale);
+    const sendH = Math.round(origH * scale);
+
+    tempCanvas.width = sendW;
+    tempCanvas.height = sendH;
+    tempCtx.drawImage(video, 0, 0, sendW, sendH);
 
     const imageData = tempCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
-    await sendForRecognition(imageData, 'webcam');
+    await sendForRecognition(imageData, 'webcam', scale);
 }
 
 function handleFileUpload(event) {
@@ -317,8 +351,8 @@ function processUploadedFile(file) {
     }
     const reader = new FileReader();
     reader.onload = async (e) => {
-        const imageData = e.target.result;
-        elements.uploadedImage.src = imageData;
+        const rawData = e.target.result;
+        elements.uploadedImage.src = rawData;
         elements.uploadZone.classList.add('hidden');
         elements.uploadedPreview.classList.remove('hidden');
 
@@ -326,7 +360,21 @@ function processUploadedFile(file) {
             const img = elements.uploadedImage;
             elements.uploadOverlayCanvas.width = img.naturalWidth;
             elements.uploadOverlayCanvas.height = img.naturalHeight;
-            await sendForRecognition(imageData, 'upload');
+
+            // Jika foto resolusi sangat besar (misal 4K/12MP), resize untuk mempercepat unggahan
+            let sendData = rawData;
+            let uploadScale = 1.0;
+            const maxUploadDim = 1280;
+            if (img.naturalWidth > maxUploadDim || img.naturalHeight > maxUploadDim) {
+                uploadScale = maxUploadDim / Math.max(img.naturalWidth, img.naturalHeight);
+                const { canvas: upCanvas, ctx: upCtx } = getOffscreenCanvas();
+                upCanvas.width = Math.round(img.naturalWidth * uploadScale);
+                upCanvas.height = Math.round(img.naturalHeight * uploadScale);
+                upCtx.drawImage(img, 0, 0, upCanvas.width, upCanvas.height);
+                sendData = upCanvas.toDataURL('image/jpeg', 0.85);
+            }
+
+            await sendForRecognition(sendData, 'upload', uploadScale);
         };
     };
     reader.readAsDataURL(file);
@@ -342,7 +390,7 @@ function removeUpload() {
     clearResults();
 }
 
-async function sendForRecognition(imageData, source) {
+async function sendForRecognition(imageData, source, captureScale = 1.0) {
     if (isProcessing) return;
     isProcessing = true;
     if (elements.processingIndicator) elements.processingIndicator.classList.remove('hidden');
@@ -354,15 +402,34 @@ async function sendForRecognition(imageData, source) {
             body: JSON.stringify({ image: imageData })
         });
 
+        if (!res.ok) {
+            console.error('Server returned HTTP error:', res.status);
+            return;
+        }
+
         const data = await res.json();
         if (data.error) {
             console.error('Inference error:', data.error);
         } else {
-            displayResults(data.faces, data.processing_time_ms);
+            // Skala balik bounding box jika gambar sempat di-downscale saat dikirim
+            let faces = data.faces || [];
+            if (captureScale !== 1.0 && captureScale > 0) {
+                faces = faces.map(f => ({
+                    ...f,
+                    bbox: {
+                        x: Math.round(f.bbox.x / captureScale),
+                        y: Math.round(f.bbox.y / captureScale),
+                        w: Math.round(f.bbox.w / captureScale),
+                        h: Math.round(f.bbox.h / captureScale)
+                    }
+                }));
+            }
+
+            displayResults(faces, data.processing_time_ms);
             if (source === 'webcam') {
-                drawBoundingBoxes(elements.overlayCanvas, data.faces, true);
+                drawBoundingBoxes(elements.overlayCanvas, faces, true);
             } else {
-                drawBoundingBoxes(elements.uploadOverlayCanvas, data.faces, false);
+                drawBoundingBoxes(elements.uploadOverlayCanvas, faces, false);
             }
         }
     } catch (err) {

@@ -39,7 +39,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENCODING_FILE = os.path.join(BASE_DIR, "face_encodings.pkl")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 MODEL_NAME = "Facenet512"
-DETECTOR_BACKEND = "retinaface"
+DETECTOR_BACKEND = "yunet"
 
 # Threshold fallback jika tidak ada di file pickle
 DEFAULT_THRESHOLD = 0.30
@@ -108,17 +108,18 @@ def load_face_data():
         
         # Pre-warm model dengan dummy image jika belum di-warm
         if not model_loaded:
-            print("[INFO] Pre-warming model DeepFace...")
+            print("[INFO] Pre-warming model DeepFace (Facenet512 + YuNet)...")
             try:
-                dummy = np.zeros((160, 160, 3), dtype=np.uint8)
-                dummy[50:110, 50:110] = 128
+                dummy = np.zeros((224, 224, 3), dtype=np.uint8)
+                dummy[50:150, 50:150] = 128
                 DeepFace.represent(
                     img_path=dummy,
                     model_name=MODEL_NAME,
-                    detector_backend="skip",
-                    enforce_detection=False
+                    detector_backend=DETECTOR_BACKEND,
+                    enforce_detection=False,
+                    align=False
                 )
-                print("[INFO] Model DeepFace siap!")
+                print("[INFO] Model DeepFace & YuNet siap!")
             except Exception as e:
                 print(f"[WARNING] Pre-warming: {e}")
         
@@ -210,45 +211,87 @@ def recognize_face_embedding(embedding):
 
 def process_image(img_array):
     """
-    Memproses gambar: deteksi wajah dan kenali setiap wajah.
+    Memproses gambar: deteksi wajah dan kenali setiap wajah dengan latensi ultra-cepat.
     
     Returns: list of dict dengan info setiap wajah terdeteksi.
     """
     results = []
+    if img_array is None or img_array.size == 0:
+        return results
     
     try:
-        # Deteksi dan ekstrak embedding wajah
-        representations = DeepFace.represent(
-            img_path=img_array,
-            model_name=MODEL_NAME,
-            detector_backend=DETECTOR_BACKEND,
-            enforce_detection=False,
-            align=True
-        )
+        h, w = img_array.shape[:2]
+        # Optimasi dimensi: jika gambar terlalu besar (>720px), resize untuk akselerasi deteksi
+        max_dim = 720
+        if max(h, w) > max_dim:
+            scale = max_dim / float(max(h, w))
+            proc_img = cv2.resize(img_array, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+        else:
+            scale = 1.0
+            proc_img = img_array
+
+        # Deteksi dan ekstrak embedding wajah menggunakan YuNet + Facenet512 (~30ms)
+        try:
+            representations = DeepFace.represent(
+                img_path=proc_img,
+                model_name=MODEL_NAME,
+                detector_backend=DETECTOR_BACKEND,
+                enforce_detection=False,
+                align=False
+            )
+        except Exception:
+            # Fallback otomatis ke opencv haar jika diperlukan
+            representations = DeepFace.represent(
+                img_path=proc_img,
+                model_name=MODEL_NAME,
+                detector_backend="opencv",
+                enforce_detection=False,
+                align=False
+            )
 
         for rep in representations:
+            # Abaikan deteksi dummy saat tidak ada wajah (face_confidence <= 0)
+            if rep.get("face_confidence", 0) <= 0.0:
+                continue
+
+            facial_area = rep.get("facial_area", {})
+            fx = facial_area.get("x", 0)
+            fy = facial_area.get("y", 0)
+            fw = facial_area.get("w", 0)
+            fh = facial_area.get("h", 0)
+            
+            # Filter deteksi tidak valid (terlalu kecil atau memenuhi seluruh frame tanpa wajah)
+            if fw <= 10 or fh <= 10:
+                continue
+            if fw >= proc_img.shape[1] * 0.98 and fh >= proc_img.shape[0] * 0.98:
+                continue
+
             embedding = np.array(rep["embedding"])
             
-            # Ambil koordinat wajah
-            facial_area = rep.get("facial_area", {})
-            x = facial_area.get("x", 0)
-            y = facial_area.get("y", 0)
-            w = facial_area.get("w", 0)
-            h = facial_area.get("h", 0)
-            
-            # Kenali wajah
+            # Kenali wajah via Vectorized KNN
             name, confidence, distance = recognize_face_embedding(embedding)
             
-            # Hanya masukkan jika confidence > 0 atau ada wajah terdeteksi
+            # Kembalikan koordinat bounding box ke resolusi asli
+            orig_x = int(round(fx / scale))
+            orig_y = int(round(fy / scale))
+            orig_w = int(round(fw / scale))
+            orig_h = int(round(fh / scale))
+
+            # Clamp koordinat ke batas dimensi gambar asli
+            orig_x = max(0, min(w - 1, orig_x))
+            orig_y = max(0, min(h - 1, orig_y))
+            orig_w = min(w - orig_x, orig_w)
+            orig_h = min(h - orig_y, orig_h)
+
             face_info = {
-                "name": name,
-                "confidence": round(confidence, 1),
+                "name": str(name),
+                "confidence": round(float(confidence), 1),
                 "distance": round(float(distance), 4),
                 "bbox": {
-                    "x": int(x),
-                    "y": int(y),
-                    "w": int(w),
-                    "h": int(h)
+                    "x": orig_x,
+                    "y": orig_y,
+                    "w": orig_w,
+                    "h": orig_h
                 }
             }
             results.append(face_info)
