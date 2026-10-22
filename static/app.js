@@ -5,7 +5,7 @@
  * =====================================================================
  */
 
-const CLOUD_BACKEND_URL = 'https://api-extras-entering-cover.trycloudflare.com';
+const CLOUD_BACKEND_URL = 'https://centers-provided-iowa-revised.trycloudflare.com';
 
 const isFileProtocol = window.location.protocol === 'file:';
 const isLocal = Boolean(
